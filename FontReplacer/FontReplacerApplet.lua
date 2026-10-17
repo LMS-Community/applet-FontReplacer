@@ -4,6 +4,11 @@
 
 applets.FontReplacer.FontReplacerApplet - Replace FreeSans.ttf and FreeSansBold.ttf with an alternative
 
+JiveLite (piCorePlayer) support: there the system fonts live in RAM, inside a read-only package, so replacing them is
+undone by the next reboot. On JiveLite the fonts are moved into the user's fonts folder instead (which JiveLite looks in
+first), the piCorePlayer settings are backed up so they survive a reboot, and JiveLite is restarted rather than the whole
+machine. On the SqueezeOS devices (Radio, Touch, Controller) nothing changes.
+
 Rather than futz with making Squeezeplay recognize the name of another font, this applet goes with
 a brute force approach-- overwrite the existing ttf files with those contained in this applet
 
@@ -116,12 +121,28 @@ function _copyAndRestart(self)
 	local newBoldFont        = System:findFile("applets/FontReplacer/NewBoldFont.ttf")
 
 	if newFont or newBoldFont then
-		log:warn('Overwriting ttf files in font directory with FontReplacer fonts')
-		if newFont then
-			os.execute('/bin/mv ' .. newFont .. ' ' .. defaultFont)
-		end
-		if newBoldFont then
-			os.execute('/bin/mv ' .. newBoldFont .. ' ' .. defaultBoldFont)
+		if System:getMachine() == "jivelite" then
+			-- JiveLite: the system font folder does not keep a change (piCorePlayer holds it in RAM), but
+			-- JiveLite looks in the user folder first, and a piCorePlayer backup keeps that
+			local fontDir = System.getUserDir() .. "/fonts"
+			log:warn('Moving FontReplacer fonts into ', fontDir)
+			os.execute('/bin/mkdir -p ' .. fontDir)
+			if newFont then
+				os.execute('/bin/mv ' .. newFont .. ' ' .. fontDir .. '/FreeSans.ttf')
+			end
+			if newBoldFont then
+				os.execute('/bin/mv ' .. newBoldFont .. ' ' .. fontDir .. '/FreeSansBold.ttf')
+			end
+			-- piCorePlayer only: save the settings, or the fonts are gone after a reboot
+			os.execute('if command -v filetool.sh >/dev/null 2>&1; then if [ "$(id -u)" = 0 ]; then su tc -c "filetool.sh -b"; else filetool.sh -b; fi; fi >/dev/null 2>&1')
+		else
+			log:warn('Overwriting ttf files in font directory with FontReplacer fonts')
+			if newFont then
+				os.execute('/bin/mv ' .. newFont .. ' ' .. defaultFont)
+			end
+			if newBoldFont then
+				os.execute('/bin/mv ' .. newBoldFont .. ' ' .. defaultBoldFont)
+			end
 		end
 		self:_restart()
 	else
@@ -157,10 +178,16 @@ function _restart(self)
 
         popup:addTimer(4000, 
 		function()
-			log:info("Reboot for font change to take effect")
-			appletManager:callService("reboot")
-                        popup:hide()
-			appletManager:callService("goHome")
+			if System:getMachine() == "jivelite" then
+				log:info("Restart JiveLite for font change to take effect")
+				popup:hide()
+				Framework:quit()
+			else
+				log:info("Reboot for font change to take effect")
+				appletManager:callService("reboot")
+				popup:hide()
+				appletManager:callService("goHome")
+			end
 		end,
 		true)
 
